@@ -4,6 +4,11 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget, QGridLayout, QListWidget, QPushButton, QFileDialog, \
     QListWidgetItem, QAbstractItemView
 
+#audio sync
+import numpy as np
+import scipy.signal as signal
+import soundfile as sf
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -46,7 +51,7 @@ class MainWindow(QMainWindow):
             self,
             "Select Files",
             "",
-            "All Files (*);;Text Files (*.txt);;Python Files (*.py)"
+            "MOV (*.mov);;MP4 (*.mp4);;Python Files (*.py)"
         )
         if files:
             list_widget.clear()
@@ -60,16 +65,63 @@ class MainWindow(QMainWindow):
     def combine_vids(self):
         #get list of vids to concat from list 1
         print("Combine Vids")
+        vid_concated_list = ["vid1Concat.mp4", "vid2Concat.mp4"]
+
         vid_list = []
-        for i in range(self.vid1_ListWgt.count()):
-            item = self.vid1_ListWgt.item(i)
-            # Extract the custom data
-            hidden_data = item.data(Qt.ItemDataRole.UserRole)
-            vid_list.append(hidden_data)
+        if self.vid1_ListWgt.count() > 0: #todo maybe just rename in case just on file?
+            for i in range(self.vid1_ListWgt.count()):
+                item = self.vid1_ListWgt.item(i)
+                # Extract the custom data
+                hidden_data = item.data(Qt.ItemDataRole.UserRole)
+                vid_list.append(hidden_data)
+            self.concat_vids(vid_list, output_filename=vid_concated_list[0])
 
-        print(vid_list)
-        self.concat_vids(vid_list)
+        vid_list = []
+        if self.vid2_ListWgt.count() > 0:
+            for i in range(self.vid2_ListWgt.count()):
+                item = self.vid2_ListWgt.item(i)
+                # Extract the custom data
+                hidden_data = item.data(Qt.ItemDataRole.UserRole)
+                vid_list.append(hidden_data)
+            self.concat_vids(vid_list, output_filename=vid_concated_list[1])
 
+        self.mvp_SBSvid_run(vid_concated_list)
+
+    def mvp_SBSvid_run(self, video_list, output_file="SBSvid.mp4"):
+        print("mvp_SBSvid")
+        # orientation 1 - 2
+
+        #find offset
+        offset_sec = self.vid_offset(video_list)
+        print(f"offset mvp:{offset_sec}")
+        '''
+        command = [
+            "mpv",
+            video_list[0],
+            f"--external-file={video_list[1]}",
+            f"--lavfi-complex=\"[vid1][vid2]hstack[vo]\""
+        ]
+        '''
+        #command with offset sec
+        command = [
+            "mpv",
+            video_list[0],
+            f"--external-file={video_list[1]}",
+            f"--lavfi-complex=[vid2]setpts=PTS+{offset_sec}/TB[vid2_delayed];[vid1][vid2_delayed]hstack[vo]",
+        ]
+
+
+
+        commandS = ' '.join(command)
+
+        try:
+            subprocess.run(commandS, check=True)
+            print(f"Successfully created: {output_file}")
+        except subprocess.CalledProcessError as e:
+            print(f"An error occurred: {e}")
+        finally:
+            # 3. Clean up the temporary vid files
+            pass
 
     def concat_vids(self, video_list, output_filename="output.mp4"):
         print("Concatenating Vids")
@@ -92,6 +144,7 @@ class MainWindow(QMainWindow):
             "-c", "copy",  # Stream copy (no re-encoding)
             output_filename
         ]
+        print(command)
 
         try:
             subprocess.run(command, check=True)
@@ -103,6 +156,80 @@ class MainWindow(QMainWindow):
             if os.path.exists(temp_txt_file):
                 os.remove(temp_txt_file)
 
+    def vid_offset(self, video_list):
+        for video in video_list:
+            print(f"time sync {video}")
+            # Get the absolute path and escape single quotes if necessary
+            abs_path = os.path.abspath(video)
+
+            # 2. Build and run the FFmpeg command
+            command = [
+                "ffmpeg", "-y",  # -y overwrites the output file if it exists
+                "-i", f"{abs_path}",  # Use the concat demuxer
+                "-safe", "0",  # Allows absolute file paths
+                "-vn",
+                "-t", "60", #only the first 60 seconds of the file for time sync
+                "-c:a", "copy",  # Stream copy (no re-encoding)
+                f"{video}.m4a"
+            ]
+
+            command = [
+                "ffmpeg", "-y",  # -y overwrites the output file if it exists
+                "-i", f"{abs_path}",  # Use the concat demuxer
+                "-safe", "0",  # Allows absolute file paths
+                "-vn",
+                "-t", "60", #only the first 60 seconds of the file for time sync
+                f"{video}.wav"
+            ]
+
+            try:
+                subprocess.run(command, check=True)
+                print(f"Successfully created: {video}.wav")
+            except subprocess.CalledProcessError as e:
+                print(f"An error occurred: {e}")
+
+        Lag_samples, offset_sec = self.find_audio_offset(f"{video_list[0]}.wav",f"{video_list[1]}.wav")
+        print(offset_sec)
+
+        return offset_sec
+
+    def find_audio_offset(self, file1_path, file2_path):
+        """
+        Finds the time offset of file2 relative to file1.
+        A positive offset means file2 starts LATER than file1.
+        A negative offset means file2 starts EARLIER than file1.
+        """
+        print("audio offset1")
+        # Load audio files
+        data1, sr1 = sf.read(file1_path)
+        data2, sr2 = sf.read(file2_path)
+
+        print("audio offset2")
+        # 1. Verification: Sample rates must match
+        if sr1 != sr2:
+            raise ValueError(f"Sample rates do not match! File 1: {sr1}Hz, File 2: {sr2}Hz. Resample them first.")
+
+        # 2. Convert to Mono if stereo (average the channels)
+        if len(data1.shape) > 1: data1 = np.mean(data1, axis=1)
+        if len(data2.shape) > 1: data2 = np.mean(data2, axis=1)
+
+        # 3. Compute cross-correlation using fast FFT convolution
+        # Flipping data2 effectively turns convolution into cross-correlation
+        correlation = signal.fftconvolve(data1, data2[::-1], mode='full')
+        lags = signal.correlation_lags(len(data1), len(data2), mode='full')
+
+        # 4. Find the peak of correlation
+        best_lag_idx = np.argmax(np.abs(correlation))
+        sample_lag = lags[best_lag_idx]
+
+        # 5. Convert sample lag to seconds
+        offset_seconds = sample_lag / sr1
+
+        print(f"--- Alignment Results ---")
+        print(f"Sample Lag: {sample_lag:+} samples")
+        print(f"Time Offset: {offset_seconds:+.4f} seconds")
+
+        return sample_lag, offset_seconds
 
 
 app = QApplication(sys.argv)
