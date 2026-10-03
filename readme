@@ -1,0 +1,8 @@
+
+Install ffmpeg
+• Go to the official FFmpeg Download Page and choose a Windows build (such as builds by BtbN or gyan.dev).
+   https://github.com/BtbN/FFmpeg-Builds/releases
+• Extract the downloaded archive and move the folder to C:\ffmpeg.
+• Open Windows search, type Environment Variables, and select Edit the system environment variables.
+• Click Environment Variables, select the Path variable under system or user variables, and click Edit.
+• Add the full path to the bin folder (e.g., C:\ffmpeg\bin) and save all dialog boxes.
