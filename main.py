@@ -2,13 +2,64 @@ import os, sys, subprocess
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget, QGridLayout, QListWidget, QPushButton, QFileDialog, \
-    QListWidgetItem, QAbstractItemView
+    QListWidgetItem, QAbstractItemView, QDialog, QVBoxLayout, QLabel, QDialogButtonBox
+from PyQt6.QtGui import QPixmap
 
 #audio sync
 import numpy as np
 import scipy.signal as signal
 import soundfile as sf
 
+
+class ImageQuestionDialog(QDialog):
+    def __init__(self, video_path, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Image Verification")
+
+        image_file = "frame.jpg"
+
+        # ffmpeg -ss00:00:05 - i input.mp4 - frames: v 1 frame.jpg
+        command = [
+            "ffmpeg", "-y",  # -y overwrites the output file if it exists
+            "-ss", "00:00:05",  # capture 5 seconds in
+            "-i", video_path,  # Input video first
+            "-frames:v", "1",  # Stream copy (no re-encoding)
+            image_file
+        ]
+        print(command)
+
+        try:
+            subprocess.run(command, check=True)
+            print(f"Successfully created: {image_file}")
+        except subprocess.CalledProcessError as e:
+            print(f"An error occurred: {e}")
+
+        # 1. Create a layout for the popup
+        layout = QVBoxLayout(self)
+
+        # 2. Add the Image via QLabel
+        self.image_label = QLabel(self)
+        pixmap = QPixmap(image_file)
+
+        # Optional: Scale the image to fit nicely if it's too large
+        scaled_pixmap = pixmap.scaled(400, 400, Qt.AspectRatioMode.KeepAspectRatio)
+        self.image_label.setPixmap(scaled_pixmap)
+        self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.image_label)
+
+        # 3. Add the question label
+        self.question_label = QLabel("Is this image inverted?", self)
+        self.question_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.question_label)
+
+        # 4. Add standard Yes/No buttons
+        self.button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Yes | QDialogButtonBox.StandardButton.No,
+            self
+        )
+        self.button_box.accepted.connect(self.accept)  # Maps Yes to accept
+        self.button_box.rejected.connect(self.reject)  # Maps No to reject
+        layout.addWidget(self.button_box)
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -51,7 +102,7 @@ class MainWindow(QMainWindow):
             self,
             "Select Files",
             "",
-            "MOV (*.mov);;MP4 (*.mp4);;Python Files (*.py)"
+            "MP4 (*.mp4);;MOV (*.mov);;Python Files (*.py)"
         )
         if files:
             list_widget.clear()
@@ -66,6 +117,19 @@ class MainWindow(QMainWindow):
         #get list of vids to concat from list 1
         print("Combine Vids")
         vid_concated_list = ["vid1Concat.mp4", "vid2Concat.mp4"]
+        vidInverted= [0, 0, 0, 0]
+        if self.vid1_ListWgt.count() > 0:
+            item = self.vid1_ListWgt.item(0)
+            vid_path = item.data(Qt.ItemDataRole.UserRole)
+            popup = ImageQuestionDialog(vid_path, self)
+            vidInverted[0] = popup.exec()
+        if self.vid2_ListWgt.count() > 0:
+            item = self.vid2_ListWgt.item(0)
+            vid_path = item.data(Qt.ItemDataRole.UserRole)
+            popup = ImageQuestionDialog(vid_path, self)
+            vidInverted[1] = popup.exec()
+
+        print(f"inv {vidInverted}")
 
         vid_list = []
         if self.vid1_ListWgt.count() > 0: #todo maybe just rename in case just on file?
@@ -74,7 +138,8 @@ class MainWindow(QMainWindow):
                 # Extract the custom data
                 hidden_data = item.data(Qt.ItemDataRole.UserRole)
                 vid_list.append(hidden_data)
-            self.concat_vids(vid_list, output_filename=vid_concated_list[0])
+
+            self.concat_vids(vid_list, vflip=vidInverted[0], output_filename=vid_concated_list[0])
 
         vid_list = []
         if self.vid2_ListWgt.count() > 0:
@@ -83,7 +148,7 @@ class MainWindow(QMainWindow):
                 # Extract the custom data
                 hidden_data = item.data(Qt.ItemDataRole.UserRole)
                 vid_list.append(hidden_data)
-            self.concat_vids(vid_list, output_filename=vid_concated_list[1])
+            self.concat_vids(vid_list, vflip=vidInverted[1], output_filename=vid_concated_list[1])
 
         self.mvp_SBSvid_run(vid_concated_list)
 
@@ -110,8 +175,6 @@ class MainWindow(QMainWindow):
             f"--lavfi-complex=[vid2]setpts=PTS+{offset_sec}/TB[vid2_delayed];[vid1][vid2_delayed]hstack[vo]",
         ]
 
-
-
         commandS = ' '.join(command)
 
         try:
@@ -123,9 +186,10 @@ class MainWindow(QMainWindow):
             # 3. Clean up the temporary vid files
             pass
 
-    def concat_vids(self, video_list, output_filename="output.mp4"):
+    def concat_vids(self, video_list, vflip=False, output_filename="output.mp4"):
         print("Concatenating Vids")
         temp_txt_file = "temp_vid_list.txt"
+
 
         # 1. Create the text file that FFmpeg needs
         with open(temp_txt_file, "w", encoding="utf-8") as f:
@@ -136,14 +200,27 @@ class MainWindow(QMainWindow):
                 print(f"{abs_path}")
 
         # 2. Build and run the FFmpeg command
-        command = [
-            "ffmpeg", "-y",  # -y overwrites the output file if it exists
-            "-f", "concat",  # Use the concat demuxer
-            "-safe", "0",  # Allows absolute file paths
-            "-i", temp_txt_file,  # Input text file
-            "-c", "copy",  # Stream copy (no re-encoding)
-            output_filename
-        ]
+        if not vflip:
+            print("do not flip video")
+            command = [
+                "ffmpeg", "-y",  # -y overwrites the output file if it exists
+                "-f", "concat",  # Use the concat demuxer
+                "-safe", "0",  # Allows absolute file paths
+                "-i", temp_txt_file,  # Input text file
+                "-c", "copy",  # Stream copy (no re-encoding)
+                output_filename
+            ]
+        else:
+            print("flip video")
+            command = [
+                "ffmpeg", "-y",  # -y overwrites the output file if it exists
+                "-f", "concat",  # Use the concat demuxer
+                "-safe", "0",  # Allows absolute file paths
+                "-i", temp_txt_file,  # Input text file
+                "-vf", "vflip" #flip vertically
+                "-c", "copy",  # Stream copy (no re-encoding)
+                output_filename
+            ]
         print(command)
 
         try:
