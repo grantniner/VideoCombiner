@@ -10,7 +10,6 @@ import numpy as np
 import scipy.signal as signal
 import soundfile as sf
 
-
 class ImageQuestionDialog(QDialog):
     def __init__(self, video_path, parent=None):
         super().__init__(parent)
@@ -21,6 +20,7 @@ class ImageQuestionDialog(QDialog):
         # ffmpeg -ss00:00:05 - i input.mp4 - frames: v 1 frame.jpg
         command = [
             "ffmpeg", "-y",  # -y overwrites the output file if it exists
+            "-noautorotate",
             "-ss", "00:00:05",  # capture 5 seconds in
             "-i", video_path,  # Input video first
             "-frames:v", "1",  # Stream copy (no re-encoding)
@@ -71,30 +71,40 @@ class MainWindow(QMainWindow):
         self.vid2_ListWgt = QListWidget()
         vid2_GetBtn = QPushButton("Get Vid 2 files")
         self.vid3_ListWgt = QListWidget()
+        vid3_GetBtn = QPushButton("Get Vid 3 files")
         self.vid4_ListWgt = QListWidget()
+        vid4_GetBtn = QPushButton("Get Vid 4 files")
 
         # 2. Enabling drag-and-drop internal reordering
         self.vid1_ListWgt.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self.vid2_ListWgt.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self.vid3_ListWgt.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self.vid4_ListWgt.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+
 
         combineVidsBtn = QPushButton("Combine Vids")
         layout = QGridLayout()
 
         vid1_GetBtn.pressed.connect(lambda: self.get_vid_files_dialog(self.vid1_ListWgt))
         vid2_GetBtn.pressed.connect(lambda: self.get_vid_files_dialog(self.vid2_ListWgt))
+        vid3_GetBtn.pressed.connect(lambda: self.get_vid_files_dialog(self.vid3_ListWgt))
+        vid4_GetBtn.pressed.connect(lambda: self.get_vid_files_dialog(self.vid4_ListWgt))
+
         combineVidsBtn.pressed.connect(self.combine_vids)
 
         layout.addWidget(self.vid1_ListWgt, 0, 0)
-        layout.addWidget(vid1_GetBtn, 1, 0)
         layout.addWidget(self.vid2_ListWgt, 0, 1)
+        layout.addWidget(vid1_GetBtn, 1, 0)
         layout.addWidget(vid2_GetBtn, 1, 1)
         layout.addWidget(self.vid3_ListWgt, 2, 0)
         layout.addWidget(self.vid4_ListWgt, 2, 1)
-        layout.addWidget(combineVidsBtn, 3, 0)
+        layout.addWidget(vid3_GetBtn, 3, 0)
+        layout.addWidget(vid4_GetBtn, 3, 1)
+        layout.addWidget(combineVidsBtn, 4, 0, 1, 2)
 
         widget = QWidget()
         widget.setLayout(layout)
         self.setCentralWidget(widget)
-
 
     def get_vid_files_dialog(self, list_widget):
 
@@ -138,8 +148,7 @@ class MainWindow(QMainWindow):
                 # Extract the custom data
                 hidden_data = item.data(Qt.ItemDataRole.UserRole)
                 vid_list.append(hidden_data)
-
-            self.concat_vids(vid_list, vflip=vidInverted[0], output_filename=vid_concated_list[0])
+            self.concat_vids(vid_list, output_filename=vid_concated_list[0])
 
         vid_list = []
         if self.vid2_ListWgt.count() > 0:
@@ -148,25 +157,19 @@ class MainWindow(QMainWindow):
                 # Extract the custom data
                 hidden_data = item.data(Qt.ItemDataRole.UserRole)
                 vid_list.append(hidden_data)
-            self.concat_vids(vid_list, vflip=vidInverted[1], output_filename=vid_concated_list[1])
+            self.concat_vids(vid_list, output_filename=vid_concated_list[1])
 
-        self.mvp_SBSvid_run(vid_concated_list)
+        self.mvp_SBSvid_run(vid_concated_list, vFlip=vidInverted)
 
-    def mvp_SBSvid_run(self, video_list, output_file="SBSvid.mp4"):
+    def mvp_SBSvid_run(self, video_list, vFlip=[0,0,0,0]):
         print("mvp_SBSvid")
         # orientation 1 - 2
 
         #find offset
-        offset_sec = self.vid_offset(video_list)
+        offset_secx = self.vid_offset(video_list)
+        offset_sec = [0, float(offset_secx), 0, 0] #todo return array from above func
         print(f"offset mvp:{offset_sec}")
-        '''
-        command = [
-            "mpv",
-            video_list[0],
-            f"--external-file={video_list[1]}",
-            f"--lavfi-complex=\"[vid1][vid2]hstack[vo]\""
-        ]
-        '''
+
         #command with offset sec
         command = [
             "mpv",
@@ -174,17 +177,43 @@ class MainWindow(QMainWindow):
             f"--external-file={video_list[1]}",
             f"--lavfi-complex=[vid2]setpts=PTS+{offset_sec}/TB[vid2_delayed];[vid1][vid2_delayed]hstack[vo]",
         ]
-
+        '''
+        command = [
+            "mpv",
+            video_list[0],
+            f"--external-file={video_list[1]}",
+            f"--lavfi-complex=[vid2]setpts=PTS+{offset_sec}/TB[vid2_delayed];[vid2_delayed]vflip[vid2_flip];[vid1][vid2_flip]hstack[vo]",
+        ]
+        '''
         commandS = ' '.join(command)
+        commandS = "mpv "
+        commandS += f"{video_list[0]} "
+        commandS += f"--external-file={video_list[1]} "
+
+        commandS += f"--lavfi-complex="
+        commandS += f"[vid1]{self.lavfi_filt(offset_sec[0], vFlip[0])}[vid1a];" #apply null filter to keep naming convention the same
+        commandS += f"[vid2]{self.lavfi_filt(offset_sec[1], vFlip[1])}[vid2a];"
+        commandS += "[vid1a][vid2a]hstack[vo]"
+
+        print(commandS)
 
         try:
             subprocess.run(commandS, check=True)
-            print(f"Successfully created: {output_file}")
+            print(f"Successfully ran")
         except subprocess.CalledProcessError as e:
             print(f"An error occurred: {e}")
         finally:
             # 3. Clean up the temporary vid files
             pass
+
+    def lavfi_filt(self, timeOffset, rot180):
+        print("lavfi_filt")
+        filtStr = "null,"
+        if timeOffset != 0:
+            filtStr = f"setpts=PTS+{timeOffset}/TB,"
+        if rot180:
+            filtStr = "hflip,vflip,"
+        return filtStr[:-1] #remove the last comma
 
     def concat_vids(self, video_list, vflip=False, output_filename="output.mp4"):
         print("Concatenating Vids")
