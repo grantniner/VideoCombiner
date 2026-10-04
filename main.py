@@ -10,6 +10,17 @@ import numpy as np
 import scipy.signal as signal
 import soundfile as sf
 
+try:
+    import pyi_splash
+    # Optional: Update text on the splash screen
+    pyi_splash.update_text("Loading components...")
+
+    # Critical: Close the splash screen so your main GUI can appear
+    pyi_splash.close()
+except ImportError:
+    # This executes during normal development runs
+    pass
+
 class ImageQuestionDialog(QDialog):
     def __init__(self, video_path, parent=None):
         super().__init__(parent)
