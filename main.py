@@ -3,7 +3,7 @@ import shutil
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget, QGridLayout, QListWidget, QPushButton, QFileDialog, \
-    QListWidgetItem, QAbstractItemView, QDialog, QVBoxLayout, QLabel, QDialogButtonBox, QToolBar
+    QListWidgetItem, QAbstractItemView, QDialog, QVBoxLayout, QLabel, QDialogButtonBox, QToolBar, QLineEdit
 from PyQt6.QtGui import QPixmap, QAction
 
 #audio sync
@@ -76,10 +76,68 @@ class ImageQuestionDialog(QDialog):
         if os.path.exists(image_file):
             os.remove(image_file)
 
+class timeOffsetDialog(QDialog):
+    def __init__(self,time_offset_arr, parent=None):
+        super().__init__(parent)
+
+        # Result placeholder
+        self.result_data = time_offset_arr
+
+        self.setWindowTitle("Time Offset")
+        QBtn = QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        self.buttonBox = QDialogButtonBox(QBtn)
+        self.buttonBox.accepted.connect(self.accept)
+        self.buttonBox.rejected.connect(self.reject)
+
+        layout = QGridLayout()
+        vid1_lbl = QLabel("Vid1 (sec):")
+        vid2_lbl = QLabel("Vid2 (sec):")
+        vid3_lbl = QLabel("Vid3 (sec):")
+        vid4_lbl = QLabel("Vid4 (sec):")
+        self.vid1_offset_wdg = QLineEdit(f"{time_offset_arr[0]:.3f}", self)
+        self.vid2_offset_wdg = QLineEdit(f"{time_offset_arr[1]:.3f}", self)
+        self.vid3_offset_wdg = QLineEdit(f"{time_offset_arr[2]:.3f}", self)
+        self.vid4_offset_wdg = QLineEdit(f"{time_offset_arr[3]:.3f}", self)
+
+        layout.addWidget(vid1_lbl, 0, 0)
+        layout.addWidget(vid2_lbl, 1, 0)
+        layout.addWidget(vid3_lbl, 2, 0)
+        layout.addWidget(vid4_lbl, 3, 0)
+        layout.addWidget(self.vid1_offset_wdg, 0, 1)
+        layout.addWidget(self.vid2_offset_wdg, 1, 1)
+        layout.addWidget(self.vid3_offset_wdg, 2, 1)
+        layout.addWidget(self.vid4_offset_wdg, 3, 1)
+
+        layout.addWidget(self.buttonBox)
+        self.setLayout(layout)
+
+        # Overriding accept to capture the text box values as floats
+
+    def accept(self):
+        print("in accept")
+        try:
+            self.result_data = [
+                float(self.vid1_offset_wdg.text()),
+                float(self.vid2_offset_wdg.text()),
+                float(self.vid3_offset_wdg.text()),
+                float(self.vid4_offset_wdg.text())
+            ]
+
+            print(f"manual offsets{self.result_data}")
+            super().accept()  # Successfully closes dialog and returns Accepted status
+        except ValueError:
+            # Optionally alert the user here about bad input
+            #self.result_data = None leave results unchanged
+            super().accept()
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("My App")
+
+        self.vidPresent = [False, False, False, False]  # this defines which videos are present for future use
+        self.vidOffsets = [0.0, 0.0, 0.0, 0.0]
+        self.vidOffset_manual = False
 
         self.vid1_ListWgt = QListWidget()
         vid1_GetBtn = QPushButton("Get Vid 1 files")
@@ -113,9 +171,12 @@ class MainWindow(QMainWindow):
         self.saveStatus_action = QAction("Save Vid", self)
         self.saveStatus_action.setStatusTip("Render video and save")
         self.saveStatus_action.setCheckable(True)
-
         #button_action.triggered.connect(self.toolbar_button_clicked)
         toolbar.addAction(self.saveStatus_action)
+        self.timeSync_action = QAction("Time Sync", self)
+        self.timeSync_action.setStatusTip("Time Sync")
+        self.timeSync_action.triggered.connect(self.manual_timeSync)
+        toolbar.addAction(self.timeSync_action)
 
         layout.addWidget(self.vid1_ListWgt, 0, 0)
         layout.addWidget(self.vid2_ListWgt, 0, 1)
@@ -130,6 +191,37 @@ class MainWindow(QMainWindow):
         widget = QWidget()
         widget.setLayout(layout)
         self.setCentralWidget(widget)
+
+    def manual_timeSync(self):
+        print("manual_timeSync")
+        timeSync_vid_list = []
+        #first try auto time sync for prepopulated values
+        if self.vid1_ListWgt.count() > 0:
+            self.vidPresent[0] = True
+            item = self.vid1_ListWgt.item(0)
+            timeSync_vid_list.append(item.data(Qt.ItemDataRole.UserRole))
+        if self.vid2_ListWgt.count() > 0:
+            self.vidPresent[1] = True
+            item = self.vid2_ListWgt.item(0)
+            timeSync_vid_list.append(item.data(Qt.ItemDataRole.UserRole))
+        if self.vid3_ListWgt.count() > 0:
+            self.vidPresent[2] = True
+            item = self.vid3_ListWgt.item(0)
+            timeSync_vid_list.append(item.data(Qt.ItemDataRole.UserRole))
+        if self.vid4_ListWgt.count() > 0:
+            self.vidPresent[3] = True
+            item = self.vid4_ListWgt.item(0)
+            timeSync_vid_list.append(item.data(Qt.ItemDataRole.UserRole))
+        print(timeSync_vid_list)
+        offset_sec = self.vid_offset(timeSync_vid_list)
+        print(f"offset auto: {offset_sec}")
+        dlg = timeOffsetDialog(offset_sec, self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self.vidOffsets = dlg.result_data
+            self.vidOffset_manual = True
+            print("New offset_sec:", self.vidOffsets)  # Output: [0.0, 1.5, 2.3, 0.0]
+        else:
+            self.vidOffset_manual = False
 
     def get_vid_files_dialog(self, ref, list_widget):
 
@@ -168,7 +260,6 @@ class MainWindow(QMainWindow):
         #define concated video names
         vid_concated_list = ["vid1Concat.mp4", "vid2Concat.mp4", "vid3Concat.mp4", "vid4Concat.mp4"]
         vidInverted= [0, 0, 0, 0]
-        self.vidPresent = [False, False, False, False]  # this defines which videos are present for future use
 
         if self.vid1_ListWgt.count() > 0:
             self.vidPresent[0] = True
@@ -234,7 +325,6 @@ class MainWindow(QMainWindow):
                 vid_list.append(hidden_data)
             self.concat_vids(vid_list, output_filename=vid_concated_list[3])
 
-        #todo use self.vidPresent to determine output =of MPV
         print(f"files: {self.vidPresent}")
         print(f"files: {sum(self.vidPresent)}")
         match sum(self.vidPresent):
@@ -264,16 +354,15 @@ class MainWindow(QMainWindow):
         print("mvp_ONEvid_run")
         # orientation 1 - 2
         print(video_list)
-        #find offset
-        offset_sec = [0.0]
-        print(f"offset mvp:{offset_sec}")
+
+        print(f"offset mvp:{self.vidOffsets[0]}")
 
         #Construct command to compile video
         commandS = "mpv "
         commandS += f"{video_list[0]} "
 
         commandS += f"--lavfi-complex="
-        commandS += f"[vid1]{self.lavfi_filt(offset_sec[0], vFlip[0])}[vid1a];" #apply null filter to keep naming convention the same
+        commandS += f"[vid1]{self.lavfi_filt(self.vidOffsets[0], vFlip[0])}[vid1a];" #apply null filter to keep naming convention the same
         commandS += "[vid1a]null[vo]"
 
         print(commandS)
@@ -295,8 +384,10 @@ class MainWindow(QMainWindow):
         # orientation 1 - 2
         print(video_list)
         #find offset
-        offset_sec = self.vid_offset(video_list)
-        print(f"offset mvp:{offset_sec}")
+        if not self.vidOffset_manual:
+            print("auto time offset")
+            self.vidOffsets = self.vid_offset(video_list)
+        print(f"offset mvp:{self.vidOffsets}")
 
         #Construct command to compile video
         commandS = "mpv "
@@ -304,8 +395,8 @@ class MainWindow(QMainWindow):
         commandS += f"--external-file={video_list[1]} "
 
         commandS += f"--lavfi-complex="
-        commandS += f"[vid1]{self.lavfi_filt(offset_sec[0], vFlip[0])}[vid1a];" #apply null filter to keep naming convention the same
-        commandS += f"[vid2]{self.lavfi_filt(offset_sec[1], vFlip[1])}[vid2a];"
+        commandS += f"[vid1]{self.lavfi_filt(self.vidOffsets[0], vFlip[0])}[vid1a];" #apply null filter to keep naming convention the same
+        commandS += f"[vid2]{self.lavfi_filt(self.vidOffsets[1], vFlip[1])}[vid2a];"
         commandS += "[vid1a][vid2a]hstack[vo]"
         if saveVid:
             commandS += " --o=output.mp4"
@@ -325,8 +416,9 @@ class MainWindow(QMainWindow):
         # orientation 1 - 2
         print(video_list)
         #find offset
-        offset_sec = self.vid_offset(video_list)
-        print(f"offset mvp:{offset_sec}")
+        if not self.vidOffset_manual:
+            self.vidOffsets = self.vid_offset(video_list)
+        print(f"offset mvp:{self.vidOffsets}")
 
         #Construct command to compile video
         commandS = "ffmpeg -y "
@@ -335,8 +427,8 @@ class MainWindow(QMainWindow):
         commandS += "-noautorotate "
         commandS += f"-i {video_list[1]} "
         commandS += f"-filter_complex "
-        commandS += f"[0:v]{self.lavfi_filt(offset_sec[0], vFlip[0])}[vid1a];" #apply null filter to keep naming convention the same
-        commandS += f"[1:v]{self.lavfi_filt(offset_sec[1], vFlip[1])}[vid2a];"
+        commandS += f"[0:v]{self.lavfi_filt(self.vidOffsets[0], vFlip[0])}[vid1a];" #apply null filter to keep naming convention the same
+        commandS += f"[1:v]{self.lavfi_filt(self.vidOffsets[1], vFlip[1])}[vid2a];"
         commandS += "[vid1a][vid2a]hstack[vo] "
         commandS += "-map [vo] "
         commandS += "-progress - output.mp4"
@@ -359,8 +451,10 @@ class MainWindow(QMainWindow):
         #             3 - 4
         print(video_list)
         #find offset
-        offset_sec = self.vid_offset(video_list)
-        print(f"offset mvp:{offset_sec}")
+        if not self.vidOffset_manual:
+            print("get auto time offsets")
+            self.vidOffsets = self.vid_offset(video_list)
+        print(f"offset mvp:{self.vidOffsets}")
 
         #Construct command to compile video
         commandS = "mpv "
@@ -369,10 +463,10 @@ class MainWindow(QMainWindow):
         commandS += f"--external-file={video_list[2]} "
         commandS += f"--external-file={video_list[3]} "
         commandS += f"--lavfi-complex=\""
-        commandS += f"[vid1]{self.lavfi_filt(offset_sec[0], vFlip[0])}[vid1a];" #apply null filter to keep naming convention the same
-        commandS += f"[vid2]{self.lavfi_filt(offset_sec[1], vFlip[1])}[vid2a];"
-        commandS += f"[vid3]{self.lavfi_filt(offset_sec[2], vFlip[2])}[vid3a];"
-        commandS += f"[vid4]{self.lavfi_filt(offset_sec[3], vFlip[3])}[vid4a];"
+        commandS += f"[vid1]{self.lavfi_filt(self.vidOffsets[0], vFlip[0])}[vid1a];" #apply null filter to keep naming convention the same
+        commandS += f"[vid2]{self.lavfi_filt(self.vidOffsets[1], vFlip[1])}[vid2a];"
+        commandS += f"[vid3]{self.lavfi_filt(self.vidOffsets[2], vFlip[2])}[vid3a];"
+        commandS += f"[vid4]{self.lavfi_filt(self.vidOffsets[3], vFlip[3])}[vid4a];"
         commandS += "[vid1a][vid2a]hstack[top];[vid3a][vid4a]hstack[bottom];[top][bottom]vstack[vo]\""
 
         print(commandS)
