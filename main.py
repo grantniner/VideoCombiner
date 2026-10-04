@@ -1,4 +1,5 @@
 import os, sys, subprocess
+import shutil
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget, QGridLayout, QListWidget, QPushButton, QFileDialog, \
@@ -187,7 +188,7 @@ class MainWindow(QMainWindow):
         print(f"inv {vidInverted}")
 
         vid_list = []
-        if self.vid1_ListWgt.count() > 0: #todo maybe just rename in case just on file?
+        if self.vid1_ListWgt.count() > 0:
             print("concat vid1")
             for i in range(self.vid1_ListWgt.count()):
                 item = self.vid1_ListWgt.item(i)
@@ -228,9 +229,7 @@ class MainWindow(QMainWindow):
         print(f"files: {sum(self.vidPresent)}")
         match sum(self.vidPresent):
             case 1:
-                print("no single video option, yet")
-                #todo single video
-                pass
+                self.mvp_ONEvid_run(vid_concated_list, vFlip=vidInverted)
             case 2:
                 self.mvp_SBSvid_run(vid_concated_list, vFlip=vidInverted)
             case 3:
@@ -239,6 +238,35 @@ class MainWindow(QMainWindow):
                 pass
             case 4:
                 self.mvp_QUADvid_run(vid_concated_list, vFlip=vidInverted)
+
+    def mvp_ONEvid_run(self, video_list, vFlip=[0,0,0,0]):
+        print("mvp_ONEvid_run")
+        # orientation 1 - 2
+        print(video_list)
+        #find offset
+        offset_sec = [0.0]
+        print(f"offset mvp:{offset_sec}")
+
+        #Construct command to compile video
+        commandS = "mpv "
+        commandS += f"{video_list[0]} "
+
+        commandS += f"--lavfi-complex="
+        commandS += f"[vid1]{self.lavfi_filt(offset_sec[0], vFlip[0])}[vid1a];" #apply null filter to keep naming convention the same
+        commandS += "[vid1a]null[vo]"
+
+        print(commandS)
+
+        try:
+            subprocess.run(commandS, check=True)
+            print(f"Successfully ran")
+        except subprocess.CalledProcessError as e:
+            print(f"An error occurred: {e}")
+        finally:
+            # 3. Clean up the temporary vid files
+            pass
+
+
 
     def mvp_SBSvid_run(self, video_list, vFlip=[0,0,0,0]):
         print("mvp_SBSvid_run")
@@ -316,6 +344,10 @@ class MainWindow(QMainWindow):
         print("Concatenating Vids")
         temp_txt_file = "temp_vid_list.txt"
 
+        if len(video_list)==1:
+            print("only one video, just copy, bypass ffmpeg")
+            shutil.copy2(video_list[0], output_filename)
+            return
 
         # 1. Create the text file that FFmpeg needs
         with open(temp_txt_file, "w", encoding="utf-8") as f:
@@ -346,6 +378,7 @@ class MainWindow(QMainWindow):
             # 3. Clean up the temporary text file
             if os.path.exists(temp_txt_file):
                 os.remove(temp_txt_file)
+        return
 
     def vid_offset(self, video_list):
         print("vid_offset")
