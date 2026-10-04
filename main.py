@@ -3,8 +3,8 @@ import shutil
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget, QGridLayout, QListWidget, QPushButton, QFileDialog, \
-    QListWidgetItem, QAbstractItemView, QDialog, QVBoxLayout, QLabel, QDialogButtonBox
-from PyQt6.QtGui import QPixmap
+    QListWidgetItem, QAbstractItemView, QDialog, QVBoxLayout, QLabel, QDialogButtonBox, QToolBar
+from PyQt6.QtGui import QPixmap, QAction
 
 #audio sync
 import numpy as np
@@ -106,6 +106,16 @@ class MainWindow(QMainWindow):
         vid4_GetBtn.pressed.connect(lambda: self.get_vid_files_dialog(4, self.vid4_ListWgt))
 
         combineVidsBtn.pressed.connect(self.combine_vids)
+
+        toolbar = QToolBar("My main toolbar")
+        self.addToolBar(toolbar)
+
+        self.saveStatus_action = QAction("Save Vid", self)
+        self.saveStatus_action.setStatusTip("Render video and save")
+        self.saveStatus_action.setCheckable(True)
+
+        #button_action.triggered.connect(self.toolbar_button_clicked)
+        toolbar.addAction(self.saveStatus_action)
 
         layout.addWidget(self.vid1_ListWgt, 0, 0)
         layout.addWidget(self.vid2_ListWgt, 0, 1)
@@ -229,15 +239,26 @@ class MainWindow(QMainWindow):
         print(f"files: {sum(self.vidPresent)}")
         match sum(self.vidPresent):
             case 1:
-                self.mvp_ONEvid_run(vid_concated_list, vFlip=vidInverted)
+                if self.saveStatus_action.isChecked():
+                    print("no save one video option yet")
+                else:
+                    self.mvp_ONEvid_run(vid_concated_list, vFlip=vidInverted)
             case 2:
-                self.mvp_SBSvid_run(vid_concated_list, vFlip=vidInverted)
+                if self.saveStatus_action.isChecked():
+                    self.ffmpeg_SBSvid_save(vid_concated_list, vFlip=vidInverted)
+                else:
+                    self.mvp_SBSvid_run(vid_concated_list, vFlip=vidInverted)
             case 3:
-                print("no 3 video option, yet. Try copied vid 3 to vid 4")
+                if self.saveStatus_action.isChecked():
+                    print("no save 3 video option yet")
+                else:
+                    print("no 3 video option, yet. Try copied vid 3 to vid 4")
                 #todo copy vid 3 to vid 4 and do 4 vid
-                pass
             case 4:
-                self.mvp_QUADvid_run(vid_concated_list, vFlip=vidInverted)
+                if self.saveStatus_action.isChecked():
+                    print("no save four video option yet")
+                else:
+                    self.mvp_QUADvid_run(vid_concated_list, vFlip=vidInverted)
 
     def mvp_ONEvid_run(self, video_list, vFlip=[0,0,0,0]):
         print("mvp_ONEvid_run")
@@ -269,6 +290,7 @@ class MainWindow(QMainWindow):
 
 
     def mvp_SBSvid_run(self, video_list, vFlip=[0,0,0,0]):
+        saveVid = False #todo set as a checkmark in GUI
         print("mvp_SBSvid_run")
         # orientation 1 - 2
         print(video_list)
@@ -285,7 +307,8 @@ class MainWindow(QMainWindow):
         commandS += f"[vid1]{self.lavfi_filt(offset_sec[0], vFlip[0])}[vid1a];" #apply null filter to keep naming convention the same
         commandS += f"[vid2]{self.lavfi_filt(offset_sec[1], vFlip[1])}[vid2a];"
         commandS += "[vid1a][vid2a]hstack[vo]"
-
+        if saveVid:
+            commandS += " --o=output.mp4"
         print(commandS)
 
         try:
@@ -296,6 +319,39 @@ class MainWindow(QMainWindow):
         finally:
             # 3. Clean up the temporary vid files
             pass
+
+    def ffmpeg_SBSvid_save(self, video_list, vFlip=[0,0,0,0]):
+        print("mvp_SBSvid_run")
+        # orientation 1 - 2
+        print(video_list)
+        #find offset
+        offset_sec = self.vid_offset(video_list)
+        print(f"offset mvp:{offset_sec}")
+
+        #Construct command to compile video
+        commandS = "ffmpeg -y "
+        commandS += "-noautorotate "
+        commandS += f"-i {video_list[0]} "
+        commandS += "-noautorotate "
+        commandS += f"-i {video_list[1]} "
+        commandS += f"-filter_complex "
+        commandS += f"[0:v]{self.lavfi_filt(offset_sec[0], vFlip[0])}[vid1a];" #apply null filter to keep naming convention the same
+        commandS += f"[1:v]{self.lavfi_filt(offset_sec[1], vFlip[1])}[vid2a];"
+        commandS += "[vid1a][vid2a]hstack[vo] "
+        commandS += "-map [vo] "
+        commandS += "-progress - output.mp4"
+        print(commandS)
+
+
+        process = subprocess.Popen(commandS, stdout=sys.stdout, stderr=subprocess.DEVNULL)
+        print(f"process started")
+        # Wait for the process to finish
+        process.wait()
+        if process.returncode == 0:
+            print("\nProcessing completed successfully!")
+        else:
+            print(f"\nProcessing failed with exit code {process.returncode}")
+
 
     def mvp_QUADvid_run(self, video_list, vFlip=[0,0,0,0]):
         print("mvp_QUADvid_run")
@@ -329,7 +385,6 @@ class MainWindow(QMainWindow):
         finally:
             # 3. Clean up the temporary vid files
             pass
-
 
     def lavfi_filt(self, timeOffset, rot180):
         print("lavfi_filt")
