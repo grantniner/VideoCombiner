@@ -171,12 +171,13 @@ class MainWindow(QMainWindow):
             item = self.vid4_ListWgt.item(0)
             vid_path = item.data(Qt.ItemDataRole.UserRole)
             popup = ImageQuestionDialog(vid_path, self)
-            vidInverted[4] = popup.exec()
+            vidInverted[3] = popup.exec()
 
         print(f"inv {vidInverted}")
 
         vid_list = []
         if self.vid1_ListWgt.count() > 0: #todo maybe just rename in case just on file?
+            print("concat vid1")
             for i in range(self.vid1_ListWgt.count()):
                 item = self.vid1_ListWgt.item(i)
                 # Extract the custom data
@@ -212,7 +213,21 @@ class MainWindow(QMainWindow):
             self.concat_vids(vid_list, output_filename=vid_concated_list[3])
 
         #todo use self.vidPresent to determine output =of MPV
-        self.mvp_SBSvid_run(vid_concated_list, vFlip=vidInverted)
+        print(f"files: {self.vidPresent}")
+        print(f"files: {sum(self.vidPresent)}")
+        match sum(self.vidPresent):
+            case 1:
+                print("no single video option, yet")
+                #todo single video
+                pass
+            case 2:
+                self.mvp_SBSvid_run(vid_concated_list, vFlip=vidInverted)
+            case 3:
+                print("no 3 video option, yet. Try copied vid 3 to vid 4")
+                #todo copy vid 3 to vid 4 and do 4 vid
+                pass
+            case 4:
+                self.mvp_QUADvid_run(vid_concated_list, vFlip=vidInverted)
 
     def mvp_SBSvid_run(self, video_list, vFlip=[0,0,0,0]):
         print("mvp_SBSvid_run")
@@ -242,6 +257,40 @@ class MainWindow(QMainWindow):
         finally:
             # 3. Clean up the temporary vid files
             pass
+
+    def mvp_QUADvid_run(self, video_list, vFlip=[0,0,0,0]):
+        print("mvp_QUADvid_run")
+        # orientation 1 - 2
+        #             3 - 4
+        print(video_list)
+        #find offset
+        offset_sec = self.vid_offset(video_list)
+        print(f"offset mvp:{offset_sec}")
+
+        #Construct command to compile video
+        commandS = "mpv "
+        commandS += f"{video_list[0]} "
+        commandS += f"--external-file={video_list[1]} "
+        commandS += f"--external-file={video_list[2]} "
+        commandS += f"--external-file={video_list[3]} "
+        commandS += f"--lavfi-complex=\""
+        commandS += f"[vid1]{self.lavfi_filt(offset_sec[0], vFlip[0])}[vid1a];" #apply null filter to keep naming convention the same
+        commandS += f"[vid2]{self.lavfi_filt(offset_sec[1], vFlip[1])}[vid2a];"
+        commandS += f"[vid3]{self.lavfi_filt(offset_sec[2], vFlip[2])}[vid3a];"
+        commandS += f"[vid4]{self.lavfi_filt(offset_sec[3], vFlip[3])}[vid4a];"
+        commandS += "[vid1a][vid2a]hstack[top];[vid3a][vid4a]hstack[bottom];[top][bottom]vstack[vo]\""
+
+        print(commandS)
+
+        try:
+            subprocess.run(commandS, check=True)
+            print(f"Successfully ran")
+        except subprocess.CalledProcessError as e:
+            print(f"An error occurred: {e}")
+        finally:
+            # 3. Clean up the temporary vid files
+            pass
+
 
     def lavfi_filt(self, timeOffset, rot180):
         print("lavfi_filt")
