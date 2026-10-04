@@ -26,7 +26,6 @@ class ImageQuestionDialog(QDialog):
             "-frames:v", "1",  # Stream copy (no re-encoding)
             image_file
         ]
-        print(command)
 
         try:
             subprocess.run(command, check=True)
@@ -60,6 +59,10 @@ class ImageQuestionDialog(QDialog):
         self.button_box.accepted.connect(self.accept)  # Maps Yes to accept
         self.button_box.rejected.connect(self.reject)  # Maps No to reject
         layout.addWidget(self.button_box)
+
+        # 3. Clean up the temporary text file
+        if os.path.exists(image_file):
+            os.remove(image_file)
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -112,7 +115,7 @@ class MainWindow(QMainWindow):
             self,
             "Select Files",
             "",
-            "MP4 (*.mp4);;MOV (*.mov);;Python Files (*.py)"
+            "video (*.mp4 *.mov);;Python Files (*.py)"
         )
         if files:
             list_widget.clear()
@@ -126,18 +129,35 @@ class MainWindow(QMainWindow):
     def combine_vids(self):
         #get list of vids to concat from list 1
         print("Combine Vids")
-        vid_concated_list = ["vid1Concat.mp4", "vid2Concat.mp4"]
+        #define concated video names
+        vid_concated_list = ["vid1Concat.mp4", "vid2Concat.mp4", "vid3Concat.mp4", "vid4Concat.mp4"]
         vidInverted= [0, 0, 0, 0]
+        self.vidPresent = [False, False, False, False]  # this defines which videos are present for future use
+
         if self.vid1_ListWgt.count() > 0:
+            self.vidPresent[0] = True
             item = self.vid1_ListWgt.item(0)
             vid_path = item.data(Qt.ItemDataRole.UserRole)
             popup = ImageQuestionDialog(vid_path, self)
             vidInverted[0] = popup.exec()
         if self.vid2_ListWgt.count() > 0:
+            self.vidPresent[1] = True
             item = self.vid2_ListWgt.item(0)
             vid_path = item.data(Qt.ItemDataRole.UserRole)
             popup = ImageQuestionDialog(vid_path, self)
             vidInverted[1] = popup.exec()
+        if self.vid3_ListWgt.count() > 0:
+            self.vidPresent[2] = True
+            item = self.vid3_ListWgt.item(0)
+            vid_path = item.data(Qt.ItemDataRole.UserRole)
+            popup = ImageQuestionDialog(vid_path, self)
+            vidInverted[2] = popup.exec()
+        if self.vid4_ListWgt.count() > 0:
+            self.vidPresent[3] = True
+            item = self.vid4_ListWgt.item(0)
+            vid_path = item.data(Qt.ItemDataRole.UserRole)
+            popup = ImageQuestionDialog(vid_path, self)
+            vidInverted[4] = popup.exec()
 
         print(f"inv {vidInverted}")
 
@@ -159,33 +179,36 @@ class MainWindow(QMainWindow):
                 vid_list.append(hidden_data)
             self.concat_vids(vid_list, output_filename=vid_concated_list[1])
 
+        vid_list = []
+        if self.vid3_ListWgt.count() > 0:
+            for i in range(self.vid3_ListWgt.count()):
+                item = self.vid3_ListWgt.item(i)
+                # Extract the custom data
+                hidden_data = item.data(Qt.ItemDataRole.UserRole)
+                vid_list.append(hidden_data)
+            self.concat_vids(vid_list, output_filename=vid_concated_list[2])
+
+        vid_list = []
+        if self.vid4_ListWgt.count() > 0:
+            for i in range(self.vid4_ListWgt.count()):
+                item = self.vid4_ListWgt.item(i)
+                # Extract the custom data
+                hidden_data = item.data(Qt.ItemDataRole.UserRole)
+                vid_list.append(hidden_data)
+            self.concat_vids(vid_list, output_filename=vid_concated_list[3])
+
+        #todo use self.vidPresent to determine output =of MPV
         self.mvp_SBSvid_run(vid_concated_list, vFlip=vidInverted)
 
     def mvp_SBSvid_run(self, video_list, vFlip=[0,0,0,0]):
-        print("mvp_SBSvid")
+        print("mvp_SBSvid_run")
         # orientation 1 - 2
-
+        print(video_list)
         #find offset
-        offset_secx = self.vid_offset(video_list)
-        offset_sec = [0, float(offset_secx), 0, 0] #todo return array from above func
+        offset_sec = self.vid_offset(video_list)
         print(f"offset mvp:{offset_sec}")
 
-        #command with offset sec
-        command = [
-            "mpv",
-            video_list[0],
-            f"--external-file={video_list[1]}",
-            f"--lavfi-complex=[vid2]setpts=PTS+{offset_sec}/TB[vid2_delayed];[vid1][vid2_delayed]hstack[vo]",
-        ]
-        '''
-        command = [
-            "mpv",
-            video_list[0],
-            f"--external-file={video_list[1]}",
-            f"--lavfi-complex=[vid2]setpts=PTS+{offset_sec}/TB[vid2_delayed];[vid2_delayed]vflip[vid2_flip];[vid1][vid2_flip]hstack[vo]",
-        ]
-        '''
-        commandS = ' '.join(command)
+        #Construct command to compile video
         commandS = "mpv "
         commandS += f"{video_list[0]} "
         commandS += f"--external-file={video_list[1]} "
@@ -215,7 +238,7 @@ class MainWindow(QMainWindow):
             filtStr = "hflip,vflip,"
         return filtStr[:-1] #remove the last comma
 
-    def concat_vids(self, video_list, vflip=False, output_filename="output.mp4"):
+    def concat_vids(self, video_list, output_filename="output.mp4"):
         print("Concatenating Vids")
         temp_txt_file = "temp_vid_list.txt"
 
@@ -229,27 +252,15 @@ class MainWindow(QMainWindow):
                 print(f"{abs_path}")
 
         # 2. Build and run the FFmpeg command
-        if not vflip:
-            print("do not flip video")
-            command = [
-                "ffmpeg", "-y",  # -y overwrites the output file if it exists
-                "-f", "concat",  # Use the concat demuxer
-                "-safe", "0",  # Allows absolute file paths
-                "-i", temp_txt_file,  # Input text file
-                "-c", "copy",  # Stream copy (no re-encoding)
-                output_filename
-            ]
-        else:
-            print("flip video")
-            command = [
-                "ffmpeg", "-y",  # -y overwrites the output file if it exists
-                "-f", "concat",  # Use the concat demuxer
-                "-safe", "0",  # Allows absolute file paths
-                "-i", temp_txt_file,  # Input text file
-                "-vf", "vflip" #flip vertically
-                "-c", "copy",  # Stream copy (no re-encoding)
-                output_filename
-            ]
+
+        command = [
+            "ffmpeg", "-y",  # -y overwrites the output file if it exists
+            "-f", "concat",  # Use the concat demuxer
+            "-safe", "0",  # Allows absolute file paths
+            "-i", temp_txt_file,  # Input text file
+            "-c", "copy",  # Stream copy (no re-encoding)
+            output_filename
+        ]
         print(command)
 
         try:
@@ -263,39 +274,42 @@ class MainWindow(QMainWindow):
                 os.remove(temp_txt_file)
 
     def vid_offset(self, video_list):
-        for video in video_list:
-            print(f"time sync {video}")
-            # Get the absolute path and escape single quotes if necessary
-            abs_path = os.path.abspath(video)
-
-            # 2. Build and run the FFmpeg command
-            command = [
-                "ffmpeg", "-y",  # -y overwrites the output file if it exists
-                "-i", f"{abs_path}",  # Use the concat demuxer
-                "-safe", "0",  # Allows absolute file paths
-                "-vn",
-                "-t", "60", #only the first 60 seconds of the file for time sync
-                "-c:a", "copy",  # Stream copy (no re-encoding)
-                f"{video}.m4a"
-            ]
-
-            command = [
-                "ffmpeg", "-y",  # -y overwrites the output file if it exists
-                "-i", f"{abs_path}",  # Use the concat demuxer
-                "-safe", "0",  # Allows absolute file paths
-                "-vn",
-                "-t", "60", #only the first 60 seconds of the file for time sync
-                f"{video}.wav"
-            ]
-
-            try:
-                subprocess.run(command, check=True)
-                print(f"Successfully created: {video}.wav")
-            except subprocess.CalledProcessError as e:
-                print(f"An error occurred: {e}")
-
-        Lag_samples, offset_sec = self.find_audio_offset(f"{video_list[0]}.wav",f"{video_list[1]}.wav")
+        print("vid_offset")
+        offset_sec = [0.0, 0.0, 0.0, 0.0]
+        print(self.vidPresent)
+        #create an audio file for sync for each video in list
+        for index, vidPresent in enumerate(self.vidPresent):
+            print(f"vid present: {index}")
+            if vidPresent:
+                print(f"time sync {video_list[index]}")
+                abs_path = os.path.abspath(video_list[index])
+                # 2. Build and run the FFmpeg command
+                command = [
+                    "ffmpeg", "-y",  # -y overwrites the output file if it exists
+                    "-i", f"{abs_path}",  # Use the concat demuxer
+                    "-safe", "0",  # Allows absolute file paths
+                    "-vn",
+                    "-t", "60",  # only the first 60 seconds of the file for time sync
+                    f"{video_list[index]}.wav"
+                ]
+                try:
+                    subprocess.run(command, check=True)
+                    print(f"Successfully created: {video_list[index]}.wav")
+                except subprocess.CalledProcessError as e:
+                    print(f"An error occurred: {e}")
+                print(f"index: {index}")
+                if index > 0:
+                    Lag_samples, offset_secOne = self.find_audio_offset(f"{video_list[0]}.wav", f"{video_list[index]}.wav")
+                    print("test2")
+                    offset_sec[index] = float(offset_secOne)
+                    print("test3")
+        print('end of video offset')
         print(offset_sec)
+
+        #remove wave files used for offset check
+        for video in video_list:
+            if os.path.exists(f"{video}.wav"):
+                os.remove(f"{video}.wav")
 
         return offset_sec
 
@@ -342,29 +356,3 @@ app = QApplication(sys.argv)
 window = MainWindow()
 window.show()
 app.exec()
-
-'''
-import sys
-from PyQt6.QtWidgets import QApplication, QListWidget, QAbstractItemView
-
-app = QApplication(sys.argv)
-
-list_widget = QListWidget()
-
-# 1. Populating the listbox
-list_widget.addItems(["Item A", "Item B", "Item C", "Item D"])
-
-# 2. Enabling drag-and-drop internal reordering
-list_widget.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
-
-# 3. Optional visual cues
-list_widget.setDropIndicatorShown(True)  # Shows a line where the item will be dropped
-list_widget.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-
-# 4. Optional: Detecting when the order changes
-# Connecting a function to the rowsMoved signal of the underlying model
-list_widget.model().rowsMoved.connect(lambda: print("List has been reordered!"))
-
-list_widget.show()
-sys.exit(app.exec())
-'''
