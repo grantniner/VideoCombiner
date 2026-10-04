@@ -390,9 +390,9 @@ class MainWindow(QMainWindow):
         print("lavfi_filt")
         filtStr = "null,"
         if timeOffset != 0:
-            filtStr = f"setpts=PTS+{timeOffset}/TB,"
+            filtStr += f"setpts=PTS+{timeOffset}/TB,"
         if rot180:
-            filtStr = "hflip,vflip,"
+            filtStr += "hflip,vflip,"
         return filtStr[:-1] #remove the last comma
 
     def concat_vids(self, video_list, output_filename="output.mp4"):
