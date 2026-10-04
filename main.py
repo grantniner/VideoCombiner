@@ -88,10 +88,10 @@ class MainWindow(QMainWindow):
         combineVidsBtn = QPushButton("Combine Vids")
         layout = QGridLayout()
 
-        vid1_GetBtn.pressed.connect(lambda: self.get_vid_files_dialog(self.vid1_ListWgt))
-        vid2_GetBtn.pressed.connect(lambda: self.get_vid_files_dialog(self.vid2_ListWgt))
-        vid3_GetBtn.pressed.connect(lambda: self.get_vid_files_dialog(self.vid3_ListWgt))
-        vid4_GetBtn.pressed.connect(lambda: self.get_vid_files_dialog(self.vid4_ListWgt))
+        vid1_GetBtn.pressed.connect(lambda: self.get_vid_files_dialog(1, self.vid1_ListWgt))
+        vid2_GetBtn.pressed.connect(lambda: self.get_vid_files_dialog(2, self.vid2_ListWgt))
+        vid3_GetBtn.pressed.connect(lambda: self.get_vid_files_dialog(3, self.vid3_ListWgt))
+        vid4_GetBtn.pressed.connect(lambda: self.get_vid_files_dialog(4, self.vid4_ListWgt))
 
         combineVidsBtn.pressed.connect(self.combine_vids)
 
@@ -109,7 +109,21 @@ class MainWindow(QMainWindow):
         widget.setLayout(layout)
         self.setCentralWidget(widget)
 
-    def get_vid_files_dialog(self, list_widget):
+    def get_vid_files_dialog(self, ref, list_widget):
+
+        #test if previous list_widget has files
+        if ref > 1:
+            if self.vid1_ListWgt.count() == 0:
+                print("fill list 1 first")
+                return
+        if ref > 2:
+            if self.vid2_ListWgt.count() == 0:
+                print("fill list 2 before 3")
+                return
+        if ref > 3:
+            if self.vid3_ListWgt.count() == 0:
+                print("fill list 3 before 4")
+                return
 
         files, _ = QFileDialog.getOpenFileNames(
             self,
