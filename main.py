@@ -258,7 +258,7 @@ class MainWindow(QMainWindow):
         #get list of vids to concat from list 1
         print("Combine Vids")
         #define concated video names
-        vid_concated_list = ["vid1Concat.mp4", "vid2Concat.mp4", "vid3Concat.mp4", "vid4Concat.mp4"]
+        self.vid_concated_list = ["vid1Concat.mp4", "vid2Concat.mp4", "vid3Concat.mp4", "vid4Concat.mp4"]
         vidInverted= [0, 0, 0, 0]
 
         if self.vid1_ListWgt.count() > 0:
@@ -296,7 +296,7 @@ class MainWindow(QMainWindow):
                 # Extract the custom data
                 hidden_data = item.data(Qt.ItemDataRole.UserRole)
                 vid_list.append(hidden_data)
-            self.concat_vids(vid_list, output_filename=vid_concated_list[0])
+            self.concat_vids(vid_list, output_filename=self.vid_concated_list[0])
 
         vid_list = []
         if self.vid2_ListWgt.count() > 0:
@@ -305,7 +305,7 @@ class MainWindow(QMainWindow):
                 # Extract the custom data
                 hidden_data = item.data(Qt.ItemDataRole.UserRole)
                 vid_list.append(hidden_data)
-            self.concat_vids(vid_list, output_filename=vid_concated_list[1])
+            self.concat_vids(vid_list, output_filename=self.vid_concated_list[1])
 
         vid_list = []
         if self.vid3_ListWgt.count() > 0:
@@ -314,7 +314,7 @@ class MainWindow(QMainWindow):
                 # Extract the custom data
                 hidden_data = item.data(Qt.ItemDataRole.UserRole)
                 vid_list.append(hidden_data)
-            self.concat_vids(vid_list, output_filename=vid_concated_list[2])
+            self.concat_vids(vid_list, output_filename=self.vid_concated_list[2])
 
         vid_list = []
         if self.vid4_ListWgt.count() > 0:
@@ -323,7 +323,7 @@ class MainWindow(QMainWindow):
                 # Extract the custom data
                 hidden_data = item.data(Qt.ItemDataRole.UserRole)
                 vid_list.append(hidden_data)
-            self.concat_vids(vid_list, output_filename=vid_concated_list[3])
+            self.concat_vids(vid_list, output_filename=self.vid_concated_list[3])
 
         print(f"files: {self.vidPresent}")
         print(f"files: {sum(self.vidPresent)}")
@@ -332,12 +332,12 @@ class MainWindow(QMainWindow):
                 if self.saveStatus_action.isChecked():
                     print("no save one video option yet")
                 else:
-                    self.mvp_ONEvid_run(vid_concated_list, vFlip=vidInverted)
+                    self.mvp_ONEvid_run(self.vid_concated_list, vFlip=vidInverted)
             case 2:
                 if self.saveStatus_action.isChecked():
-                    self.ffmpeg_SBSvid_save(vid_concated_list, vFlip=vidInverted)
+                    self.ffmpeg_SBSvid_save(self.vid_concated_list, vFlip=vidInverted)
                 else:
-                    self.mvp_SBSvid_run(vid_concated_list, vFlip=vidInverted)
+                    self.mvp_SBSvid_run(self.vid_concated_list, vFlip=vidInverted)
             case 3:
                 if self.saveStatus_action.isChecked():
                     print("no save 3 video option yet")
@@ -348,7 +348,7 @@ class MainWindow(QMainWindow):
                 if self.saveStatus_action.isChecked():
                     print("no save four video option yet")
                 else:
-                    self.mvp_QUADvid_run(vid_concated_list, vFlip=vidInverted)
+                    self.mvp_QUADvid_run(self.vid_concated_list, vFlip=vidInverted)
 
     def mvp_ONEvid_run(self, video_list, vFlip=[0,0,0,0]):
         print("mvp_ONEvid_run")
@@ -606,6 +606,17 @@ class MainWindow(QMainWindow):
         print(f"Time Offset: {offset_seconds:+.4f} seconds")
 
         return sample_lag, offset_seconds
+
+    def closeEvent(self, event):
+        # Remove the temp file safely on exit
+        for vid in self.vid_concated_list:
+            if os.path.exists(vid):
+                try:
+                    os.remove(vid)
+                except OSError as e:
+                    print(f"Error removing file: {e}")
+
+        event.accept()
 
 
 app = QApplication(sys.argv)
