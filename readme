@@ -6,3 +6,7 @@ Install ffmpeg
 • Open Windows search, type Environment Variables, and select Edit the system environment variables.
 • Click Environment Variables, select the Path variable under system or user variables, and click Edit.
 • Add the full path to the bin folder (e.g., C:\ffmpeg\bin) and save all dialog boxes.
+
+to get length of video 1 to pre-populate the record video length
+
+

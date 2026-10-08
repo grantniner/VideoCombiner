@@ -10,6 +10,7 @@ from PyQt6.QtGui import QPixmap, QAction
 import numpy as np
 import scipy.signal as signal
 import soundfile as sf
+from datetime import datetime
 
 try:
     import pyi_splash
@@ -99,6 +100,7 @@ class timeOffsetDialog(QDialog):
         self.vid3_offset_wdg = QLineEdit(f"{time_offset_arr[2]:.3f}", self)
         self.vid4_offset_wdg = QLineEdit(f"{time_offset_arr[3]:.3f}", self)
 
+
         layout.addWidget(vid1_lbl, 0, 0)
         layout.addWidget(vid2_lbl, 1, 0)
         layout.addWidget(vid3_lbl, 2, 0)
@@ -130,6 +132,55 @@ class timeOffsetDialog(QDialog):
             #self.result_data = None leave results unchanged
             super().accept()
 
+class saveTimeDialog(QDialog):
+    def __init__(self, initSaveTimes, parent=None):
+        super().__init__(parent)
+
+        print("saveTimeDialog")
+        print(initSaveTimes)
+        self.results = []
+
+        self.setWindowTitle("Save Video Time Range")
+        QBtn = QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        self.buttonBox = QDialogButtonBox(QBtn)
+        self.buttonBox.accepted.connect(self.accept)
+        self.buttonBox.rejected.connect(self.reject)
+
+        layout = QGridLayout()
+        startTime_lbl = QLabel("Start Time (HR:MN:SC.00):")
+        stopTime_lbl = QLabel("Stop Time (HR:MN:SC.00):")
+        self.startTime_wdg = QLineEdit(f"{initSaveTimes[0]}", self)
+        self.stopTime_wdg = QLineEdit(f"{initSaveTimes[1]}", self)
+        self.startTime_wdg.setInputMask("0:00:00.00")
+        self.stopTime_wdg.setInputMask("0:00:00.00")
+
+        layout.addWidget(startTime_lbl, 0, 0)
+        layout.addWidget(stopTime_lbl, 1, 0)
+        layout.addWidget(self.startTime_wdg, 0, 1)
+        layout.addWidget(self.stopTime_wdg, 1, 1)
+
+
+        layout.addWidget(self.buttonBox)
+        self.setLayout(layout)
+
+        # Overriding accept to capture the text box values as floats
+    def accept(self):
+        print("in accept")
+        try:
+            self.resutls = [
+                self.startTime_wdg.text(),
+                self.stopTime_wdg.text()
+            ]
+
+            print(f"Vid times {self.results}")
+            super().accept()  # Successfully closes dialog and returns Accepted status
+        except ValueError:
+            # Optionally alert the user here about bad input
+            #self.result_data = None leave results unchanged
+            super().accept()
+
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -137,6 +188,7 @@ class MainWindow(QMainWindow):
 
         self.vidPresent = [False, False, False, False]  # this defines which videos are present for future use
         self.vidOffsets = [0.0, 0.0, 0.0, 0.0]
+        self.vidSaveTimes = ["0:00:00.00", "0:00:00.00"]
         self.vidOffset_manual = False
 
         self.vid1_ListWgt = QListWidget()
@@ -171,6 +223,7 @@ class MainWindow(QMainWindow):
         self.saveStatus_action = QAction("Save Vid", self)
         self.saveStatus_action.setStatusTip("Render video and save")
         self.saveStatus_action.setCheckable(True)
+
         #button_action.triggered.connect(self.toolbar_button_clicked)
         toolbar.addAction(self.saveStatus_action)
         self.timeSync_action = QAction("Time Sync", self)
@@ -297,7 +350,7 @@ class MainWindow(QMainWindow):
                 hidden_data = item.data(Qt.ItemDataRole.UserRole)
                 vid_list.append(hidden_data)
             self.concat_vids(vid_list, output_filename=self.vid_concated_list[0])
-
+            self.vid_endtime(self.vid_concated_list[0])
         vid_list = []
         if self.vid2_ListWgt.count() > 0:
             for i in range(self.vid2_ListWgt.count()):
@@ -357,6 +410,8 @@ class MainWindow(QMainWindow):
 
         print(f"offset mvp:{self.vidOffsets[0]}")
 
+
+
         #Construct command to compile video
         commandS = "mpv "
         commandS += f"{video_list[0]} "
@@ -379,7 +434,6 @@ class MainWindow(QMainWindow):
 
 
     def mvp_SBSvid_run(self, video_list, vFlip=[0,0,0,0]):
-        saveVid = False #todo set as a checkmark in GUI
         print("mvp_SBSvid_run")
         # orientation 1 - 2
         print(video_list)
@@ -398,8 +452,6 @@ class MainWindow(QMainWindow):
         commandS += f"[vid1]{self.lavfi_filt(self.vidOffsets[0], vFlip[0])}[vid1a];" #apply null filter to keep naming convention the same
         commandS += f"[vid2]{self.lavfi_filt(self.vidOffsets[1], vFlip[1])}[vid2a];"
         commandS += "[vid1a][vid2a]hstack[vo]"
-        if saveVid:
-            commandS += " --o=output.mp4"
         print(commandS)
 
         try:
@@ -415,23 +467,73 @@ class MainWindow(QMainWindow):
         print("mvp_SBSvid_run")
         # orientation 1 - 2
         print(video_list)
+
+        #SS_timeStrs = ["00:39:00", "00:42:00"]
+        print(f"Start: {self.vidSaveTimes[0]}")
+        print(f"Stop: {self.vidSaveTimes[1]}")
+
+
+
+
         #find offset
         if not self.vidOffset_manual:
             self.vidOffsets = self.vid_offset(video_list)
         print(f"offset mvp:{self.vidOffsets}")
 
+        dlg = saveTimeDialog(self.vidSaveTimes, self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self.vidSaveTimes= dlg.resutls
+            print("Video Save times:", self.vidSaveTimes)
+        else:
+            pass
+            #self.vidOffset_manual = False
+
+        SS_timeSec = [0.0, 0.0]
+        #convert to seconds
+        dt = datetime.strptime(self.vidSaveTimes[0], "%H:%M:%S.%f")
+        SS_timeSec[0] = dt.hour * 3600 + dt.minute * 60 + dt.second + dt.microsecond / 1e6
+        dt = datetime.strptime(self.vidSaveTimes[1], "%H:%M:%S.%f")
+        SS_timeSec[1] = dt.hour * 3600 + dt.minute * 60 + dt.second + dt.microsecond / 1e6
+        print(f"Start: {SS_timeSec[0]}")
+        print(f"Stop: {SS_timeSec[1]}")
+
+        ''' this works but lengthy to encode if time is late in the video (needs to encode up to time stamp)
         #Construct command to compile video
         commandS = "ffmpeg -y "
-        commandS += "-noautorotate "
-        commandS += f"-i {video_list[0]} "
-        commandS += "-noautorotate "
-        commandS += f"-i {video_list[1]} "
+        commandS += f"-noautorotate -i {video_list[0]} "
+        commandS += f"-noautorotate -i {video_list[1]} "
         commandS += f"-filter_complex "
         commandS += f"[0:v]{self.lavfi_filt(self.vidOffsets[0], vFlip[0])}[vid1a];" #apply null filter to keep naming convention the same
         commandS += f"[1:v]{self.lavfi_filt(self.vidOffsets[1], vFlip[1])}[vid2a];"
-        commandS += "[vid1a][vid2a]hstack[vo] "
-        commandS += "-map [vo] "
+        commandS += "[vid1a][vid2a]hstack=inputs=2[vo] "
+        commandS += "-map ""[vo]"" "
+        commandS += f"-ss {self.vidSaveTimes[0]} -to {self.vidSaveTimes[1]} "
         commandS += "-progress - output.mp4"
+        '''
+        SSvid1 = [SS_timeSec[0] -self.vidOffsets[0], SS_timeSec[1] -self.vidOffsets[0]]
+        SSvid2 = [SS_timeSec[0] -self.vidOffsets[1], SS_timeSec[1] -self.vidOffsets[1]]
+
+        #Construct command to compile video
+        commandS = "ffmpeg -y "
+        commandS += f"-noautorotate -ss {SSvid1[0]} -to {SSvid1[1]} -i {video_list[0]} "
+        commandS += f"-noautorotate -ss {SSvid2[0]} -to {SSvid2[1]} -i {video_list[1]} "
+        commandS += f"-filter_complex "
+
+        if vFlip[0] == True:
+            commandS += f"[0:v]hflip,vflip[vid1a];"
+        else:
+            commandS += f"[0:v]null[vid1a];"
+        if vFlip[1] == True:
+            commandS += f"[1:v]hflip,vflip[vid2a];"
+        else:
+            commandS += f"[1:v]null[vid2a];"
+
+        commandS += "[vid1a][vid2a]hstack=inputs=2[vo] "
+        commandS += "-map ""[vo]"" "
+        #commandS += f"-ss {self.vidSaveTimes[0]} -to {self.vidSaveTimes[1]} "
+        commandS += "-progress - output.mp4"
+
+
         print(commandS)
 
 
@@ -488,6 +590,19 @@ class MainWindow(QMainWindow):
         if rot180:
             filtStr += "hflip,vflip,"
         return filtStr[:-1] #remove the last comma
+
+
+    def vid_endtime(self, vidfile):
+        cmdStr = (f"ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 -sexagesimal {vidfile}")
+        print(cmdStr)
+        try:
+            result = subprocess.run(cmdStr, capture_output=True, text=True, check=True)
+            self.vidSaveTimes[1] = result.stdout.replace("\n","")
+            print(f"{vidfile} length: {self.vidSaveTimes}")
+
+
+        except subprocess.CalledProcessError as e:
+            print(f"An error occurred: {e}")
 
     def concat_vids(self, video_list, output_filename="output.mp4"):
         print("Concatenating Vids")
@@ -575,12 +690,10 @@ class MainWindow(QMainWindow):
         A positive offset means file2 starts LATER than file1.
         A negative offset means file2 starts EARLIER than file1.
         """
-        print("audio offset1")
         # Load audio files
         data1, sr1 = sf.read(file1_path)
         data2, sr2 = sf.read(file2_path)
 
-        print("audio offset2")
         # 1. Verification: Sample rates must match
         if sr1 != sr2:
             raise ValueError(f"Sample rates do not match! File 1: {sr1}Hz, File 2: {sr2}Hz. Resample them first.")
