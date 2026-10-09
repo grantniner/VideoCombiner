@@ -3,7 +3,8 @@ import shutil
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget, QGridLayout, QListWidget, QPushButton, QFileDialog, \
-    QListWidgetItem, QAbstractItemView, QDialog, QVBoxLayout, QLabel, QDialogButtonBox, QToolBar, QLineEdit
+    QListWidgetItem, QAbstractItemView, QDialog, QVBoxLayout, QLabel, QDialogButtonBox, QToolBar, QLineEdit, \
+    QTableWidget, QTableWidgetItem, QHBoxLayout, QMessageBox, QStyle, QStyledItemDelegate
 from PyQt6.QtGui import QPixmap, QAction
 
 #audio sync
@@ -179,6 +180,114 @@ class saveTimeDialog(QDialog):
             #self.result_data = None leave results unchanged
             super().accept()
 
+class TimeMaskDelegate(QStyledItemDelegate):
+    def createEditor(self, parent, option,index):
+        editor = QLineEdit(parent)
+        editor.setInputMask("0:00:00.0;")
+        return editor
+
+
+class SaveTimeDialog2(QDialog):
+    def __init__(self, init_rows=None, parent=None):
+        """
+        init_rows:
+        [
+            ["video1.mp4", "0:00:10.00", "0:00:20.00"],
+            ["video2.mp4", "0:01:05.00", "0:01:30.00"]
+        ]
+        """
+        super().__init__(parent)
+
+        self.setWindowTitle("Save Video Time Ranges")
+        self.results = []
+
+        layout = QVBoxLayout(self)
+
+        # Table
+        self.table = QTableWidget(0, 3)
+        self.table.setHorizontalHeaderLabels(
+            ["File Name", "Start Time", "End Time"]
+        )
+        self.table.horizontalHeader().setStretchLastSection(True)
+
+        layout.addWidget(self.table)
+
+        self.time_delegate = TimeMaskDelegate()
+        self.table.setItemDelegateForColumn(1, self.time_delegate)
+        self.table.setItemDelegateForColumn(2, self.time_delegate)
+
+        # Populate existing rows
+        if init_rows:
+            for row_data in init_rows:
+                self.add_row(*row_data)
+
+        # Row buttons
+        btn_layout = QHBoxLayout()
+
+        self.add_btn = QPushButton("Add Row")
+        self.remove_btn = QPushButton("Remove Selected")
+
+        self.add_btn.clicked.connect(self.on_add_row)
+        self.remove_btn.clicked.connect(self.on_remove_row)
+
+        btn_layout.addWidget(self.add_btn)
+        btn_layout.addWidget(self.remove_btn)
+
+        layout.addLayout(btn_layout)
+
+        # OK / Cancel
+        self.buttonBox = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok |
+            QDialogButtonBox.StandardButton.Cancel
+        )
+
+        self.buttonBox.accepted.connect(self.accept)
+        self.buttonBox.rejected.connect(self.reject)
+
+        layout.addWidget(self.buttonBox)
+
+    def add_row(self, filename="", start_time="0:00:00.00", end_time="0:00:00.00"):
+        row = self.table.rowCount()
+        self.table.insertRow(row)
+
+        self.table.setItem(row, 0, QTableWidgetItem(filename))
+        self.table.setItem(row, 1, QTableWidgetItem(start_time))
+        self.table.setItem(row, 2, QTableWidgetItem(end_time))
+
+    def on_add_row(self):
+        self.add_row()
+
+    def on_remove_row(self):
+        rows = sorted(
+            {idx.row() for idx in self.table.selectedIndexes()},
+            reverse=True
+        )
+
+        for row in rows:
+            self.table.removeRow(row)
+
+    def accept(self):
+        self.results = []
+
+        try:
+            for row in range(self.table.rowCount()):
+                filename = self.table.item(row, 0)
+                start = self.table.item(row, 1)
+                end = self.table.item(row, 2)
+
+                self.results.append([
+                    filename.text() if filename else "",
+                    start.text() if start else "",
+                    end.text() if end else ""
+                ])
+
+            print("Save ranges:")
+            print(self.results)
+
+            super().accept()
+
+        except Exception as e:
+            QMessageBox.warning(self, "Error", str(e))
 
 
 class MainWindow(QMainWindow):
@@ -480,7 +589,14 @@ class MainWindow(QMainWindow):
             self.vidOffsets = self.vid_offset(video_list)
         print(f"offset mvp:{self.vidOffsets}")
 
-        dlg = saveTimeDialog(self.vidSaveTimes, self)
+        init_rows = [
+            ["vid1Concat.mp4", "0:39:00.00", "0:42:00.00"],
+            ["vid2Concat.mp4", "0:38:20.00", "0:41:20.00"]
+        ]
+
+        #dlg = saveTimeDialog(self.vidSaveTimes, self)
+        dlg = SaveTimeDialog2(init_rows, self)
+        print(dlg)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self.vidSaveTimes= dlg.resutls
             print("Video Save times:", self.vidSaveTimes)
