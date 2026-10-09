@@ -1,4 +1,4 @@
-import os, sys, subprocess
+import os, sys, subprocess, re
 import shutil
 
 from PyQt6.QtCore import Qt
@@ -248,6 +248,9 @@ class SaveTimeDialog2(QDialog):
 
     def add_row(self, filename="", start_time="0:00:00.00", end_time="0:00:00.00"):
         row = self.table.rowCount()
+
+
+
         self.table.insertRow(row)
 
         self.table.setItem(row, 0, QTableWidgetItem(filename))
@@ -255,7 +258,15 @@ class SaveTimeDialog2(QDialog):
         self.table.setItem(row, 2, QTableWidgetItem(end_time))
 
     def on_add_row(self):
-        self.add_row()
+        row = self.table.rowCount()
+        if row > 0:
+            print(f"row {row}")
+            s1 = self.table.item(row-1, 0).text() #grab previous filename and increment 1
+            print("prev name", s1)
+            m = re.match(r"(.*?)(\d+)(\.\w+)$", s1)
+            filename = f"{m.group(1)}{int(m.group(2)) + 1}{m.group(3)}"
+
+        self.add_row(filename=filename)
 
     def on_remove_row(self):
         rows = sorted(
@@ -589,78 +600,65 @@ class MainWindow(QMainWindow):
             self.vidOffsets = self.vid_offset(video_list)
         print(f"offset mvp:{self.vidOffsets}")
 
-        init_rows = [
-            ["vid1Concat.mp4", "0:39:00.00", "0:42:00.00"],
-            ["vid2Concat.mp4", "0:38:20.00", "0:41:20.00"]
+        init_vid_rows = [
+            ["Comb1.mp4", "0:00:00.00", self.vidSaveTimes[1]]
         ]
 
         #dlg = saveTimeDialog(self.vidSaveTimes, self)
-        dlg = SaveTimeDialog2(init_rows, self)
+        dlg = SaveTimeDialog2(init_vid_rows, self)
         print(dlg)
         if dlg.exec() == QDialog.DialogCode.Accepted:
-            self.vidSaveTimes= dlg.resutls
-            print("Video Save times:", self.vidSaveTimes)
+            self.vidSaveData = dlg.results
+            print("Video Save times:", self.vidSaveData)
+            print("Video 1 Save:", self.vidSaveData[0][0])
         else:
             pass
             #self.vidOffset_manual = False
 
-        SS_timeSec = [0.0, 0.0]
-        #convert to seconds
-        dt = datetime.strptime(self.vidSaveTimes[0], "%H:%M:%S.%f")
-        SS_timeSec[0] = dt.hour * 3600 + dt.minute * 60 + dt.second + dt.microsecond / 1e6
-        dt = datetime.strptime(self.vidSaveTimes[1], "%H:%M:%S.%f")
-        SS_timeSec[1] = dt.hour * 3600 + dt.minute * 60 + dt.second + dt.microsecond / 1e6
-        print(f"Start: {SS_timeSec[0]}")
-        print(f"Stop: {SS_timeSec[1]}")
+        for vid in self.vidSaveData:
+            colName = 0
+            colStart = 1
+            colStop = 2
+            SS_timeSec = [0.0, 0.0]
+            #convert to seconds
+            dt = datetime.strptime(vid[colStart], "%H:%M:%S.%f")
+            SS_timeSec[0] = dt.hour * 3600 + dt.minute * 60 + dt.second + dt.microsecond / 1e6
+            dt = datetime.strptime(vid[colStop], "%H:%M:%S.%f")
+            SS_timeSec[1] = dt.hour * 3600 + dt.minute * 60 + dt.second + dt.microsecond / 1e6
+            print(f"Start: {SS_timeSec[0]}")
+            print(f"Stop: {SS_timeSec[1]}")
 
-        ''' this works but lengthy to encode if time is late in the video (needs to encode up to time stamp)
-        #Construct command to compile video
-        commandS = "ffmpeg -y "
-        commandS += f"-noautorotate -i {video_list[0]} "
-        commandS += f"-noautorotate -i {video_list[1]} "
-        commandS += f"-filter_complex "
-        commandS += f"[0:v]{self.lavfi_filt(self.vidOffsets[0], vFlip[0])}[vid1a];" #apply null filter to keep naming convention the same
-        commandS += f"[1:v]{self.lavfi_filt(self.vidOffsets[1], vFlip[1])}[vid2a];"
-        commandS += "[vid1a][vid2a]hstack=inputs=2[vo] "
-        commandS += "-map ""[vo]"" "
-        commandS += f"-ss {self.vidSaveTimes[0]} -to {self.vidSaveTimes[1]} "
-        commandS += "-progress - output.mp4"
-        '''
-        SSvid1 = [SS_timeSec[0] -self.vidOffsets[0], SS_timeSec[1] -self.vidOffsets[0]]
-        SSvid2 = [SS_timeSec[0] -self.vidOffsets[1], SS_timeSec[1] -self.vidOffsets[1]]
+            SSvid1 = [SS_timeSec[0] -self.vidOffsets[0], SS_timeSec[1] -self.vidOffsets[0]]
+            SSvid2 = [SS_timeSec[0] -self.vidOffsets[1], SS_timeSec[1] -self.vidOffsets[1]]
 
-        #Construct command to compile video
-        commandS = "ffmpeg -y "
-        commandS += f"-noautorotate -ss {SSvid1[0]} -to {SSvid1[1]} -i {video_list[0]} "
-        commandS += f"-noautorotate -ss {SSvid2[0]} -to {SSvid2[1]} -i {video_list[1]} "
-        commandS += f"-filter_complex "
+            #Construct command to compile video
+            commandS = "ffmpeg -y "
+            commandS += f"-noautorotate -ss {SSvid1[0]} -to {SSvid1[1]} -i {video_list[0]} "
+            commandS += f"-noautorotate -ss {SSvid2[0]} -to {SSvid2[1]} -i {video_list[1]} "
+            commandS += f"-filter_complex "
 
-        if vFlip[0] == True:
-            commandS += f"[0:v]hflip,vflip[vid1a];"
-        else:
-            commandS += f"[0:v]null[vid1a];"
-        if vFlip[1] == True:
-            commandS += f"[1:v]hflip,vflip[vid2a];"
-        else:
-            commandS += f"[1:v]null[vid2a];"
+            if vFlip[0] == True:
+                commandS += f"[0:v]hflip,vflip[vid1a];"
+            else:
+                commandS += f"[0:v]null[vid1a];"
+            if vFlip[1] == True:
+                commandS += f"[1:v]hflip,vflip[vid2a];"
+            else:
+                commandS += f"[1:v]null[vid2a];"
 
-        commandS += "[vid1a][vid2a]hstack=inputs=2[vo] "
-        commandS += "-map ""[vo]"" "
-        #commandS += f"-ss {self.vidSaveTimes[0]} -to {self.vidSaveTimes[1]} "
-        commandS += "-progress - output.mp4"
+            commandS += "[vid1a][vid2a]hstack=inputs=2[vo] "
+            commandS += "-map ""[vo]"" "
+            commandS += f"-progress - {vid[colName]}"
+            print(commandS)
 
-
-        print(commandS)
-
-
-        process = subprocess.Popen(commandS, stdout=sys.stdout, stderr=subprocess.DEVNULL)
-        print(f"process started")
-        # Wait for the process to finish
-        process.wait()
-        if process.returncode == 0:
-            print("\nProcessing completed successfully!")
-        else:
-            print(f"\nProcessing failed with exit code {process.returncode}")
+            process = subprocess.Popen(commandS, stdout=sys.stdout, stderr=subprocess.DEVNULL)
+            print(f"process started")
+            # Wait for the process to finish
+            process.wait()
+            if process.returncode == 0:
+                print("\nProcessing completed successfully!")
+            else:
+                print(f"\nProcessing failed with exit code {process.returncode}")
 
 
     def mvp_QUADvid_run(self, video_list, vFlip=[0,0,0,0]):
